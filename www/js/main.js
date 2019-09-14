@@ -1904,7 +1904,9 @@ var showSites = ( function() {
 					return false;
 				} );
 
-				page.find( ".ui-content" ).html( list.enhanceWithin() );
+				exportAll = $( "<a data-role='button' data-icon='action' href='#' data-mini='true' style='margin:10px 0'>" + _( "Export All Sites" ) + "</a>" ).on( "click", exportAllSites );
+
+				page.find( ".ui-content" ).html( exportAll ).append( list ).enhanceWithin();
 			}
 
 			if ( typeof data.cloudToken === "string" ) {
@@ -9013,6 +9015,18 @@ function getExportMethod() {
 	} );
 
 	openPopup( popup, { positionTo: $( "#sprinklers-settings" ).find( ".export_config" ) } );
+}
+
+function exportAllSites() {
+	storage.get( "sites", function( data ) {
+		sites = parseSites( data.sites );
+		for ( site in sites ) {
+			$( "<a/>" ).attr( {
+				href: "data:text/json;charset=utf-8," + encodeURIComponent( JSON.stringify( controller ) ),
+				download: "backup-" + new Date().toLocaleDateString().replace( /\//g, "-" ) + ".json"
+			} ).appendTo( "body" ).click();
+		}
+	} );
 }
 
 function getImportMethod( localData ) {
