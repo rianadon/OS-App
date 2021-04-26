@@ -7358,6 +7358,17 @@ var getPreview = ( function() {
 			return 0;
 		}
 
+		if ( prog[ 6 ] && prog[ 6 ][ 0 ] ) { // Enable date range
+			var dateEncode = ( (date.getUTCMonth()+1) << 5 ) + date.getUTCDate();
+			// Check that the current day does not lie outside the date range specified
+			var isAscending = prog[ 6 ][ 1 ] < prog[ 6 ][ 2 ];
+			if (isAscending && (dateEncode < prog[ 6 ][ 1 ] || dateEncode > prog[ 6 ][ 2 ])) {
+				return 0;
+			} else if (!isAscending && dateEncode > prog[ 6 ][ 1 ] && dateEncode < prog[ 6 ][ 2 ]) {
+				return 0;
+			}
+		}
+
 		var start = getStartTime( prog[ 3 ][ 0 ], date ),
 			repeat = prog[ 3 ][ 1 ],
 			cycle = prog[ 3 ][ 2 ],
@@ -8429,6 +8440,13 @@ function readProgram21( program ) {
 	newdata.is_interval = ( type === 3 ) ? true : false;
 	newdata.stations = program[ 4 ];
 	newdata.name = program[ 5 ];
+	newdata.has_daterange = program[ 6 ] ? true : false;
+
+	if ( newdata.has_daterange ) {
+		newdata.endr = program[ 6 ][ 0 ];
+		newdata.fromdr = program[ 6 ][ 1 ];
+		newdata.todr = program[ 6 ][ 2 ];
+	}
 
 	if ( startType === 0 ) {
 		newdata.start = program[ 3 ][ 0 ];
@@ -8504,6 +8522,22 @@ function readStartTime( time ) {
 	}
 
 	return type + ( offset !== 0 ? ( offset > 0 ? "+" : "" ) + dhms2str( sec2dhms( offset * 60 ) ) : "" );
+}
+
+// Translate the start and end dates of a date range
+function readDate( date ) {
+	var daysInMonth = [ 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 ];
+	var month = date >> 5;
+	var day = date & 31;
+
+	if ( month < 1 ) return "invalid";
+	if ( month > 12 ) return "invalid";
+	if ( day < 1 ) return "invalid";
+	// 1904 is a leap year, which gives the correct max number of days for February
+	// 1 is not subtracted so the month number is one more. Day = 0 goes back one day.
+	if ( day > new Date(4, month, 0).getDate() ) return "invalid";
+
+	return new Date(4, month-1, day).toLocaleString( "default", { month: "short", day: "numeric" } );
 }
 
 // Translate program ID to it's name
@@ -8830,6 +8864,30 @@ function makeProgram21( n, isCopy ) {
 	// Close program type group
 	list += "</div></div>";
 
+
+	if (program.has_daterange) {
+		// Group all date range options visually
+		list += "<div style='margin-top:10px' class='ui-corner-all'>";
+		list += "<div class='ui-bar ui-bar-a'><h3>" + _( "Date Range" ) + "</h3></div>";
+		list += "<div class='ui-body ui-body-a'>";
+
+		list += "<label for='endr-" + id + "'><input data-mini='true' type='checkbox' " +
+			( program.endr ? "checked='checked'" : "" ) + " name='endr-" + id + "' id='endr-" + id + "'>" + _( "Enabled" ) + "</label>";
+
+		list += "<div " + ( program.endr ? "" : "style='display:none'" ) + " id='input_endr-" + id + "' class='ui-grid-a'>";
+		list += "<div class='ui-block-a'><label class='pad_buttons center' for='fromdr-" + id + "'>" + _( "From" ) + "</label>" +
+			"<button class='pad_buttons datefield' data-mini='true' name='interval-" + id + "' id='fromdr-" + id + "' " +
+			"value='" + program.fromdr + "'>" + readDate(program.fromdr) + "</button></div>";
+		list += "<div class='ui-block-b'><label class='pad_buttons center' for='todr-" + id + "'>" + _( "To" ) + "</label>" +
+			"<button class='pad_buttons datefield' data-mini='true' name='repeat-" + id + "' id='todr-" + id + "' value='" + program.todr + "'>" +
+			readDate(program.todr) + "</button></div>";
+		list += "</div>";
+
+		// Close date range group
+		list += "</div></div>";
+	}
+
+
 	// Group all stations visually
 	list += "<div style='margin-top:10px' class='ui-corner-all'>";
 	list += "<div class='ui-bar ui-bar-a'><h3>" + _( "Stations" ) + "</h3></div>";
@@ -8913,6 +8971,27 @@ function makeProgram21( n, isCopy ) {
 
 		$( "[id^='input_" + input[ 0 ] + "_']" ).hide();
 		$( "#input_" + input[ 0 ] + "_" + input[ 1 ] + "-" + id ).show();
+	} );
+
+	// Toggle date range option when enable is toggled
+	page.find( "[id^='endr-']" ).on( "change", function() {
+		$( "#input_endr-" + id ).toggle( $( this ).is( ":checked" ) );
+	});
+
+	page.find( ".datefield" ).on( "click", function() {
+		var date = $( this ),
+		    name = page.find( "label[for='" + date.attr( "id" ) + "']" ).text();;
+
+		showDateInput( {
+			month: date.val() >> 5,
+			day: date.val() & 31,
+			title: name,
+			callback: function( result ) {
+				var datenum = ( result[0] << 5 ) + result[1];
+				date.val( datenum );
+				date.text( readDate( datenum ) );
+			}
+		} );
 	} );
 
 	// Handle interval duration input
@@ -9219,6 +9298,9 @@ function submitProgram21( id, ignoreWarning ) {
 		} );
 	}
 
+	var enableDateRange = $( "#endr-"+id ).is( ":checked" ) ? 1 : 0;
+	j |= ( enableDateRange << 7 );
+
 	var sel = $( "[id^=station_][id$=-" + id + "]" ),
 		runTimes = [];
 
@@ -9238,6 +9320,11 @@ function submitProgram21( id, ignoreWarning ) {
 
 	name = $( "#name-" + id ).val();
 	url = "&v=" + JSON.stringify( program ) + "&name=" + encodeURIComponent( name );
+
+	if ( enableDateRange ) {
+		url += "&from=" + $( "#fromdr-"+id ).val();
+		url += "&to=" + $( "#todr-"+id ).val();
+	}
 
 	if ( stationSelected === 0 ) {
 		showerror( _( "Error: You have not selected any stations." ) );
@@ -11722,6 +11809,132 @@ function showTimeInput( opt ) {
 			popup.find( "span" ).find( ".ui-btn,input,p" ).prop( "disabled", true ).addClass( "ui-disabled" );
 		}
 	} )
+	.one( "popupafterclose", function() {
+		if ( opt.incrementalUpdate ) {
+			opt.callback( getValue() );
+		}
+	} );
+
+	openPopup( popup );
+}
+
+function showDateInput( opt ) {
+	var defaults = {
+			month: 1,
+			day: 1,
+			title: _( "Date" ),
+			showBack: true,
+			callback: function() {}
+		};
+
+	opt = $.extend( {}, defaults, opt );
+
+	$( "#dateInput" ).popup( "destroy" ).remove();
+
+	if ( opt.month < 1) opt.month = 1;
+	if ( opt.month > 12 ) opt.month = 12;
+	if ( opt.day < 1 ) opt.day = 1;
+
+	var monthNames = [ _( "Jan" ), _( "Feb" ), _( "Mar" ), _( "Apr" ), _( "May" ), _( "Jun" ),
+					   _( "Jul" ), _( "Aug" ), _( "Sep" ), _( "Oct" ), _( "Nov" ), _( "Dec" ) ];
+
+	var monthOptions = "";
+	for ( var i = 0; i < 12; i++ ) {
+		monthOptions += "<option value='" + (i+1) + "' ";
+		if ( i+1 === opt.month) monthOptions += "selected";
+		monthOptions += ">" + monthNames[i] + "</option>";
+	}
+
+	var popup = $( "<div data-role='popup' id='dateInput' data-theme='a'>" +
+			"<div data-role='header' data-theme='b'>" +
+				"<h1>" + opt.title + "</h1>" +
+			"</div>" +
+			"<div class='ui-content'>" +
+				"<span>" +
+					"<fieldset class='ui-grid-a incr'>" +
+						"<div class='ui-block-a'>" +
+							"<a href='#' data-role='button' data-mini='true' data-corners='true' data-icon='plus' data-iconpos='bottom'></a>" +
+						"</div>" +
+						"<div class='ui-block-b'>" +
+							"<a href='#' data-role='button' data-mini='true' data-corners='true' data-icon='plus' data-iconpos='bottom'></a>" +
+						"</div>" +
+					"</fieldset>" +
+					"<div class='ui-grid-a inputs'>" +
+						"<div class='ui-block-a'>" +
+							"<select data-wrapper-class='pad_buttons' class='month'>" + monthOptions + "</select>" +
+						"</div>" +
+						"<div class='ui-block-b'>" +
+							"<input data-wrapper-class='pad_buttons' class='day' type='number' pattern='[0-9]*' value='" +
+								opt.day + "'>" +
+						"</div>" +
+					"</div>" +
+					"<fieldset class='ui-grid-a decr'>" +
+						"<div class='ui-block-a'>" +
+							"<a href='#' data-role='button' data-mini='true' data-corners='true' data-icon='minus' data-iconpos='bottom'></a>" +
+						"</div>" +
+						"<div class='ui-block-b'>" +
+							"<a href='#' data-role='button' data-mini='true' data-corners='true' data-icon='minus' data-iconpos='bottom'></a>" +
+						"</div>" +
+					"</fieldset>" +
+				"</span>" +
+				( opt.showBack ? "<button class='submit' data-theme='b'>" + _( "Submit" ) + "</button>" : "" ) +
+			"</div>" +
+		"</div>" ),
+		changeValue = function( pos, dir ) {
+			var val = getValue(),
+			input = popup.find( ".inputs input, .inputs select" ).eq( pos );
+
+			val[ pos ] += dir;
+			if ( val[0] < 1 ) val[ 0 ] = 12;
+			if ( val[0] > 12 ) val[ 0 ] = 1;
+			if ( val[1] < 1 ) val[ 1 ] = 31;
+			if ( val[1] > 31 ) val[ 1 ] = 1;
+
+			input.val( val[pos] );
+			if ( pos == 0 ) input.selectmenu('refresh', true);
+		},
+		getValue = function() {
+			var month = parseInt( popup.find( "select.month" ).val() );
+			var day = parseInt( popup.find( "input.day" ).val() );
+			return [ month, day ];
+		};
+
+	popup.find( "button.submit" ).on( "click", function() {
+		opt.callback( getValue() );
+		popup.popup( "destroy" ).remove();
+	} );
+
+	popup.on( "focus", "input[type='number']", function( e ) {
+		e.target.value = "";
+	} ).on( "blur", "input[type='number']", function( e ) {
+		var val = parseInt( e.target.value ) || 0;
+		e.target.value = val;
+	} );
+
+	holdButton( popup.find( ".incr" ).children(), function( e ) {
+		var button = $( e.currentTarget ),
+			pos = button.index();
+
+		if ( button.find( ".ui-disabled" ).length === 0 ) {
+			changeValue( pos, 1 );
+		}
+
+		return false;
+	} );
+
+	holdButton( popup.find( ".decr" ).children(), function( e ) {
+		var button = $( e.currentTarget ),
+			pos = button.index();
+
+		if ( button.find( ".ui-disabled" ).length === 0 ) {
+			changeValue( pos, -1 );
+		}
+
+		return false;
+	} );
+
+	popup
+	.css( "max-width", "350px" )
 	.one( "popupafterclose", function() {
 		if ( opt.incrementalUpdate ) {
 			opt.callback( getValue() );
