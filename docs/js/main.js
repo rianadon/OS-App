@@ -4834,6 +4834,7 @@ var showHomeMenu = ( function() {
 				( checkOSVersion( 206 ) || checkOSPiVersion( "1.9" ) ? "<li><a href='#logs'>" + _( "View Logs" ) + "</a></li>" : "" ) +
 				"<li data-role='list-divider'>" + _( "Programs and Settings" ) + "</li>" +
 				"<li><a href='#raindelay'>" + _( "Change Rain Delay" ) + "</a></li>" +
+				"<li><a href='#pause'>" + _( "Pause Programming" ) + "</a></li>" +
 				"<li><a href='#runonce'>" + _( "Run-Once Program" ) + "</a></li>" +
 				"<li><a href='#programs'>" + _( "Edit Programs" ) + "</a></li>" +
 				"<li><a href='#os-options'>" + _( "Edit Options" ) + "</a></li>" +
@@ -4865,6 +4866,8 @@ var showHomeMenu = ( function() {
 
 			if ( href === "#stop-all" ) {
 				stopAllStations();
+			} else if ( href === "#pause" ) {
+				pauseProgramming();
 			} else if ( href === "#show-hidden" ) {
 				if ( showHidden ) {
 					$( ".station-hidden" ).hide();
@@ -6156,6 +6159,19 @@ function checkStatus() {
 				showLoading( "#footer-running" );
 				sendToOS( "/cv?pw=&en=1" ).done( function() {
 					updateController();
+				} );
+			} );
+		} );
+		return;
+	}
+
+	// Handle queue paused
+	if ( controller.settings.pq ) {
+		changeStatus( 0, "yellow", "<p class='running-text center pointer'>" + _( "Programs Paused" ) + "</p>", function() {
+			areYouSure( _( "Do you want to resume program operation?" ), "", function() {
+				showLoading( "#footer-running" );
+				sendToOS( "/pq?pw=&dur=0" ).done( function() {
+					setTimeout(refreshStatus, 1000);
 				} );
 			} );
 		} );
@@ -10872,6 +10888,27 @@ function stopAllStations() {
 	} );
 }
 
+function pauseProgramming() {
+
+	if ( !isControllerConnected() ) {
+		return false;
+	}
+
+	showDurationBox( {
+		title: _( "Pause Time" ),
+		incrementalUpdate: false,
+		updateOnChange: false,
+		maximum: 65535,
+		callback: function( result ) {
+			$.mobile.loading( "show" );
+			sendToOS( "/pq?pw=&dur="+result ).done (function() {
+				$.mobile.loading( "hide" );
+				refreshStatus();
+			} );
+		}
+	} );
+}
+
 function checkOSPiVersion( check ) {
 	var ver;
 
@@ -12054,7 +12091,7 @@ function changeHeader( opt ) {
 	// Generate new header content
 	var newHeader = $( "<button data-icon='" + opt.leftBtn.icon + "' " + ( opt.leftBtn.text === "" ? "data-iconpos='notext' " : "" ) +
 				"class='ui-btn-left " + opt.leftBtn.class + "'>" + opt.leftBtn.text + "</button>" +
-			"<h3 class='" + opt.class + "'>" + opt.title + "</h3>" +
+			"<h3 class='" + opt.class + "'>" + opt.title + " <span style='color:red'>UNOFFICIAL BUILD</span></h3>" +
 			"<button data-icon='" + opt.rightBtn.icon + "' " + ( opt.rightBtn.text === "" ? "data-iconpos='notext' " : "" ) +
 				"class='ui-btn-right " + opt.rightBtn.class + "'>" + opt.rightBtn.text + "</button>" ),
 		speed = opt.animate ? "fast" : 0;
